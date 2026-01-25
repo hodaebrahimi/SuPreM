@@ -16,7 +16,6 @@ tensorboardX
 ml-collections
 einops
 timm
-elasticdeform
 numpy
 nibabel
 scipy
