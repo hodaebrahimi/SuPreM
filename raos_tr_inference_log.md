@@ -67,3 +67,36 @@ raos_tr_suprem/{swinunetr,nnunet}/dice_results.csv   # combined-tract Dice vs bi
 ```
 Note: GT is binary (0/1), so only the combined intestinal-tract Dice is meaningful —
 per-organ Dice is not computable against this GT.
+
+## Bug fixed (2026-06-08): empty duodenum masks
+
+**Symptom:** the first run produced `duodenum.nii.gz` with 0 voxels for all 10
+cases on both backbones, while colon/small_bowel were non-empty (but undersized).
+
+**Root cause — the spatial inverse was broken, not the model.** A GPU diagnostic
+showed the model predicts duodenum richly in network space (~18k–28k voxels post
+connected-component). The masks died in the save path:
+1. `get_val_transforms` added the channel dim with a `Lambdad` hack. Combined with
+   `list_data_collate`, the MetaTensor's `applied_operations` collapsed to a single
+   malformed `'list'` entry, so MONAI `Invertd` could not reverse
+   Orientation/Spacing/CropForeground. It returned the **network-space** mask
+   unchanged (RAS, 1.5 mm, shape e.g. 224×155×345) instead of the original CT grid
+   (e.g. 343×237×173, LPS). (`inference.py` has the same latent bug but never noticed:
+   it saves the network-space mask with the original affine — geometrically wrong but
+   non-empty.)
+2. `match_shape_to_original` then force-fit that network-space mask into the original
+   shape by origin-aligned truncation. Large sprawling organs (colon/intestine) kept a
+   coincidental fraction; the compact duodenum landed entirely outside the bogus
+   overlap → 0 voxels.
+
+**Fix (in `suprem_raos_inference.py`):**
+- `Lambdad` → `EnsureChannelFirstd` (keeps a correct affine on the MetaTensor).
+- Dropped `Invertd` + `match_shape_to_original`. Now wrap each network-space organ
+  mask in a `MetaTensor` carrying the image's post-transform affine and
+  `ResampleToMatch(mode="nearest")` it onto the original CT grid loaded with
+  `LoadImage()/EnsureChannelFirst()`. This is affine-based, so it is geometrically
+  exact and robust to MONAI's fragile inverse op-stack.
+
+**Result:** duodenum non-empty in 10/10 cases (~14k–31k voxels) on both backbones;
+masks align to the CT/GT. Combined intestinal-tract Dice:
+swinunetr 0.8905 ± 0.0179, nnunet ≈ 0.89 (n=10).

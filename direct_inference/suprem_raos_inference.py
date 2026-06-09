@@ -32,9 +32,9 @@ from monai.inferers import sliding_window_inference
 from monai.transforms import (
     Compose, LoadImaged, Orientationd, Spacingd,
     ScaleIntensityRanged, CropForegroundd, ToTensord,
-    EnsureChannelFirstd, Lambdad, Invertd,
+    EnsureChannelFirstd, LoadImage, EnsureChannelFirst, ResampleToMatch,
 )
-from monai.data import DataLoader, Dataset, list_data_collate, decollate_batch
+from monai.data import DataLoader, Dataset, list_data_collate, MetaTensor
 
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -59,9 +59,13 @@ INTESTINAL_ORGANS = {
 
 
 def get_val_transforms(args):
+    # EnsureChannelFirstd (not a Lambda channel-add hack) so the MetaTensor keeps a
+    # correct affine through Orientation/Spacing/CropForeground. We map predictions
+    # back to the original CT grid with ResampleToMatch using that affine, rather than
+    # MONAI's Invertd (whose inverse op-stack is mangled by list_data_collate here).
     return Compose([
         LoadImaged(keys=["image"]),
-        Lambdad(keys=["image"], func=lambda x: x[None] if x.ndim == 3 else x),
+        EnsureChannelFirstd(keys=["image"]),
         Orientationd(keys=["image"], axcodes="RAS"),
         Spacingd(keys=["image"], pixdim=(args.space_x, args.space_y, args.space_z), mode="bilinear"),
         ScaleIntensityRanged(keys=["image"], a_min=args.a_min, a_max=args.a_max,
@@ -69,29 +73,6 @@ def get_val_transforms(args):
         CropForegroundd(keys=["image"], source_key="image"),
         ToTensord(keys=["image"]),
     ])
-
-
-def invert_transform(name, batch, val_transforms):
-    """Invert spatial transforms to map predictions back to original CT space."""
-    post_transforms = Invertd(
-        keys=name,
-        transform=val_transforms,
-        orig_keys="image",
-        meta_keys=name + "_meta_dict",
-        orig_meta_keys="image_meta_dict",
-        meta_key_postfix="meta_dict",
-        nearest_interp=True,
-        to_tensor=True,
-    )
-    return [post_transforms(x) for x in decollate_batch(batch)]
-
-
-def match_shape_to_original(mask, original_shape):
-    """Pad/crop a mask so it exactly matches the original CT shape."""
-    result = np.zeros(original_shape, dtype=mask.dtype)
-    slices = tuple(slice(0, min(m, o)) for m, o in zip(mask.shape, original_shape))
-    result[slices] = mask[slices]
-    return result
 
 
 def dice_binary(pred, gt):
@@ -178,6 +159,12 @@ def run_inference(args):
         original_nii = nib.load(image_file_path)
         affine, original_shape = original_nii.affine, original_nii.shape
 
+        # Network-space image MetaTensor (carries the post-transform affine: RAS, target
+        # spacing, crop-shifted origin) and the original CT grid as the resample target.
+        net_img = batch["image"][0]                              # (1, nx, ny, nz)
+        dst_grid = EnsureChannelFirst()(LoadImage()(image_file_path))  # (1, *original_shape)
+        resample = ResampleToMatch(mode="nearest")
+
         with torch.no_grad():
             pred = sliding_window_inference(
                 image, (args.roi_x, args.roi_y, args.roi_z), args.sw_batch_size,
@@ -193,15 +180,15 @@ def run_inference(args):
 
         intestinal_mask = None
         for organ_idx, organ_name in INTESTINAL_ORGANS.items():
-            pseudo = pseudo_label_single_organ(pred_hard_post, organ_idx, args)
-            batch[organ_name] = pseudo.cpu()
-            BATCH = invert_transform(organ_name, batch, val_transforms)
-            organ_invertd = np.squeeze(BATCH[0][organ_name].numpy(), axis=0)
-            organ_invertd = match_shape_to_original(organ_invertd, original_shape).astype(np.uint8)
-            nib.save(nib.Nifti1Image(organ_invertd, affine),
+            pseudo = pseudo_label_single_organ(pred_hard_post, organ_idx, args)  # (1, 1, nx, ny, nz)
+            # wrap the network-space mask with the image's affine, then resample to the CT grid
+            organ_net = MetaTensor(pseudo[0].float().cpu(), affine=net_img.affine)  # (1, nx, ny, nz)
+            organ_orig = resample(organ_net, dst_grid)                           # (1, *original_shape)
+            organ_mask = (organ_orig[0].numpy() > 0).astype(np.uint8)
+            nib.save(nib.Nifti1Image(organ_mask, affine),
                      os.path.join(seg_save_path, organ_name + '.nii.gz'))
-            intestinal_mask = organ_invertd if intestinal_mask is None \
-                else np.logical_or(intestinal_mask, organ_invertd).astype(np.uint8)
+            intestinal_mask = organ_mask if intestinal_mask is None \
+                else np.logical_or(intestinal_mask, organ_mask).astype(np.uint8)
 
         nib.save(nib.Nifti1Image(intestinal_mask, affine),
                  os.path.join(case_save_path, 'intestinal_tract.nii.gz'))
