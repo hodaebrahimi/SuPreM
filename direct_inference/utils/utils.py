@@ -244,8 +244,7 @@ def organ_post_process(pred_mask, organ_list,case_dir,args):
     else:
         plot_save_path = os.path.join(case_dir,'backbones',args.backbone)
         anomaly_csv_path = os.path.join(args.save_dir,dataset_id,args.backbone+'_anomaly.csv')
-    # if not os.path.isdir(plot_save_path):
-        # os.makedirs(plot_save_path)
+    os.makedirs(plot_save_path, exist_ok=True)
     for b in range(pred_mask.shape[0]):
         for organ in organ_list:
             if organ == 11: # both process pancreas and Portal vein and splenic vein
@@ -264,14 +263,16 @@ def organ_post_process(pred_mask, organ_list,case_dir,args):
                     shape_temp = post_pred_mask[b,16].shape
                     post_pred_mask[b,16] = np.zeros(shape_temp)
                     post_pred_mask[b,15] = np.zeros(shape_temp)
+                    os.makedirs(os.path.dirname(anomaly_csv_path), exist_ok=True)
                     with open(anomaly_csv_path,'a',newline='') as f:
                         writer = csv.writer(f)
                         content = case_id
                         writer.writerow([content])
+                    continue
 
                 right_lung_size = np.sum(post_pred_mask[b,15],axis=(0,1,2))
                 left_lung_size = np.sum(post_pred_mask[b,16],axis=(0,1,2))
-                
+
                 print('left lung size: '+str(left_lung_size))
                 print('right lung size: '+str(right_lung_size))
 

@@ -44,7 +44,8 @@ def validation(model, ValLoader, val_transforms, args):
                     shutil.copy(image_file_path, destination_ct)
                     print("CT scans copied successfully.")
             affine_temp = nib.load(image_file_path).affine
-            with torch.no_grad():
+            with torch.no_grad():the colon b
+                print(f"Image shape: {image.shape}")
                 pred = sliding_window_inference(image, (args.roi_x, args.roi_y, args.roi_z), 1, model, overlap=args.overlap, mode='gaussian')
                 pred_sigmoid = F.sigmoid(pred)
             pred_hard = threshold_organ(pred_sigmoid,args)
@@ -53,14 +54,14 @@ def validation(model, ValLoader, val_transforms, args):
 
             B = pred_hard.shape[0]
             for b in range(B):
-                organ_list_all = TEMPLATE['target'] # post processing target organ
+                organ_list_all = TEMPLATE['assemble'] # post processing target organ
                 pred_hard_post, _ = organ_post_process(pred_hard.numpy(), organ_list_all, case_save_path,args)
                 pred_hard_post = torch.tensor(pred_hard_post)
             
             if args.store_result:
                 if not os.path.isdir(organ_seg_save_path):
                     os.makedirs(organ_seg_save_path)
-                organ_index_all = TEMPLATE['target']
+                organ_index_all = TEMPLATE['assemble']
                 for organ_index in organ_index_all:
                     pseudo_label_single = pseudo_label_single_organ(pred_hard_post,organ_index,args)
                     organ_name = ORGAN_NAME_LOW[organ_index-1]

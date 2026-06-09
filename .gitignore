@@ -1,1 +1,12 @@
 /pretrained_weights/
+/suprem_preds/
+/suprem_preds.swinunetr/
+/raos_ts_samples/
+/raos_tr_suprem/
+/raos_tr_input/
+
+
+*.pth
+/logs/
+__pycache__/
+*.pyc

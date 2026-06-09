@@ -2,7 +2,6 @@ connected-components-3d
 h5py>=3.10.0
 monai>=1.0.0  
 torch>=2.1.1
-torchvision 
 numpy
 scipy
 scikit-image

@@ -1,0 +1,20 @@
+module load gcc opencv
+module load python
+
+python -m venv /uhome/hoda2/projects/p60290_1/envs/suprem
+source /uhome/hoda2/projects/p60290_1/envs/suprem/bin/activate
+
+pip install "pip<24.1"
+
+pip install torch torchvision torchaudio
+
+pip install -r requirements.txt
+
+
+datarootpath="/uhome/hoda2/projects/p60290_1/AbdomenAtlas/SuPreM/raos_ts_samples"
+backbone="swinunetr"
+pretrainpath="/uhome/hoda2/projects/p60290_1/AbdomenAtlas/SuPreM/pretrained_weights/supervised_suprem_swinunetr_2100.pth" # or ./pretrained_weights/supervised_suprem_swinunetr_2100.pth
+savepath="/uhome/hoda2/projects/p60290_1/AbdomenAtlas/SuPreM/suprem_preds"
+
+cd SuPreM/direct_inference/
+python -W ignore inference.py --save_dir $savepath.$backbone --checkpoint $pretrainpath --data_root_path $datarootpath --backbone $backbone --store_result --suprem

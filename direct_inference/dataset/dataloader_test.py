@@ -1,6 +1,6 @@
 from monai.transforms import (
     AsDiscrete,
-    AddChanneld,
+    # AddChanneld,
     Compose,
     CropForegroundd,
     LoadImaged,
@@ -18,7 +18,11 @@ from monai.transforms import (
     apply_transform,
     RandZoomd,
     RandCropByLabelClassesd,
+    EnsureChannelFirstd,
+    Lambdad,
 )
+
+
 
 import collections.abc
 import math
@@ -67,9 +71,9 @@ class_map_part_cardiac = {
     11: "iliac_artery_right",
     12: "iliac_vena_left",
     13: "iliac_vena_right",
-    14: "small_bowel",
-    15: "duodenum",
-    16: "colon",
+    14: "small_bowel",  # Want this
+    15: "duodenum",  # Want this
+    16: "colon", # Want this
     17: "urinary_bladder",
     18: "face"
     }
@@ -353,7 +357,9 @@ def get_loader(args):
     train_transforms = Compose(
         [
             LoadImageh5d(keys=["image", "label"]), #0
-            AddChanneld(keys=["image", "label"]),
+            Lambdad(keys=["image"], func=lambda x: x[None] if x.ndim == 3 else x),
+            # AddChanneld(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
             Orientationd(keys=["image", "label"], axcodes="RAS"),
             Spacingd(
                 keys=["image", "label"],
@@ -408,7 +414,9 @@ def get_loader(args):
         val_transforms = Compose(
             [
                 LoadImaged(keys=["image", "label"]),
-                AddChanneld(keys=["image", "label"]),
+                Lambdad(keys=["image"], func=lambda x: x[None] if x.ndim == 3 else x),
+                # AddChanneld(keys=["image", "label"]),
+                EnsureChannelFirstd(keys=["image", "label"]),
                 Orientationd(keys=["image", "label"], axcodes="RAS"),
                 # ToTemplatelabeld(keys=['label']),
                 # RL_Splitd(keys=['label']),
@@ -433,7 +441,8 @@ def get_loader(args):
         val_transforms = Compose(
             [
                 LoadImaged(keys=["image"]),
-                AddChanneld(keys=["image"]),
+                Lambdad(keys=["image"], func=lambda x: x[None] if x.ndim == 3 else x),
+                # AddChanneld(keys=["image"]),
                 Orientationd(keys=["image"], axcodes="RAS"),
                 # ToTemplatelabeld(keys=['label']),
                 # RL_Splitd(keys=['label']),
