@@ -4,6 +4,16 @@
 /raos_ts_samples/
 /raos_tr_suprem/
 /raos_tr_input/
+/cte_input/
+/cte_suprem_nnunet/
+/cte_suprem_swinunetr/
+/raos_ts_gt_bin/
+/raos_val_gt_bin/
+/raos_ts_input/
+/raos_ts_suprem/
+/raos_val_input/
+/raos_val_suprem/
+
 
 
 *.pth

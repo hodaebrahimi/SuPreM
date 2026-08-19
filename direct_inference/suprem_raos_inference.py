@@ -76,12 +76,18 @@ def get_val_transforms(args):
 
 
 def dice_binary(pred, gt):
+    # Explicitly check for empty masks before computing Dice:
+    #   both empty            -> NaN  (organ absent from FOV; excluded from the mean)
+    #   exactly one empty     -> 0.0  (a miss or a false positive)
+    #   both present          -> 2|p&g| / (|p|+|g|)
     pred, gt = pred.astype(bool), gt.astype(bool)
+    pe, ge = not pred.any(), not gt.any()
+    if pe and ge:
+        return float('nan')
+    if pe or ge:
+        return 0.0
     inter = np.logical_and(pred, gt).sum()
-    denom = pred.sum() + gt.sum()
-    if denom == 0:
-        return 1.0
-    return float(2.0 * inter / denom)
+    return float(2.0 * inter / (pred.sum() + gt.sum()))
 
 
 def run_inference(args):
@@ -107,6 +113,18 @@ def run_inference(args):
             for m in sorted(missing):
                 print(f"  - {m}")
         all_cases = [c for c in all_cases if c in wanted]
+
+    # Optionally skip cases already fully written (resume-friendly for the 12h SLURM limit).
+    if args.skip_existing:
+        def done(c):
+            cd = os.path.join(args.save_dir, c)
+            seg = os.path.join(cd, 'segmentations')
+            return (os.path.exists(os.path.join(cd, 'intestinal_tract.nii.gz'))
+                    and all(os.path.exists(os.path.join(seg, o + '.nii.gz'))
+                            for o in INTESTINAL_ORGANS.values()))
+        before = len(all_cases)
+        all_cases = [c for c in all_cases if not done(c)]
+        print(f"--skip_existing: {before - len(all_cases)} already done, {len(all_cases)} remaining")
 
     print(f"Processing {len(all_cases)} cases")
     if not all_cases:
@@ -215,9 +233,10 @@ def run_inference(args):
             w = csv.writer(f)
             w.writerow(['case', 'intestinal_tract_dice'])
             w.writerows(dice_rows)
-        scores = [d for _, d in dice_rows]
+        scores = [d for _, d in dice_rows if not np.isnan(d)]
+        n_empty = len(dice_rows) - len(scores)
         print(f"\nMean intestinal-tract Dice: {np.mean(scores):.4f} +/- {np.std(scores):.4f} "
-              f"(n={len(scores)})  ->  {csv_path}")
+              f"(n={len(scores)}; {n_empty} both-empty excluded)  ->  {csv_path}")
 
 
 def main():
@@ -228,6 +247,8 @@ def main():
     p.add_argument('--backbone', default='swinunetr', help='swinunetr or unet')
     p.add_argument('--case_list', default=None, help='Optional txt of case ids to restrict to (one per line)')
     p.add_argument('--labels_dir', default=None, help='Optional dir of <case>.nii.gz binary GT for Dice')
+    p.add_argument('--skip_existing', action='store_true', default=False,
+                   help='Skip cases whose output masks are already fully written (resume)')
     p.add_argument('--num_workers', type=int, default=4)
 
     p.add_argument('--roi_x', type=int, default=96)
